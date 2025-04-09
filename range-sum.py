@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import itertools
-from typing import Iterable, Literal, cast, Self
+from typing import Iterable, Literal, cast, Self, Protocol
 from collections import deque
 import graphviz
 
@@ -57,45 +57,68 @@ class Cum(Solution):
 Hops = Iterable[Literal["0", "1"]]
 
 
-class Node:
-    def __init__(self, left: Self | None, right: Self | None, sum: int) -> None:
+class Addable(Protocol):
+    def __add__(self, other, /) -> Self: ...
+    def __radd__(self, other, /) -> Self: ...
+
+
+class Totalable[T](Protocol):
+    def get_total(self) -> T: ...
+
+
+class Leaf[T: Addable]:
+    __slots__ = ("value",)
+
+    def __init__(self, value: T) -> None:
+        self.value = value
+
+    def get_total(self):
+        return self.value
+
+
+class Node[T: Addable]:
+    def __init__(
+        self, left: Self | Leaf[T] | None, right: Self | Leaf[T] | None
+    ) -> None:
         self.left = left
         self.right = right
-        self.sum = sum
+        self.set_sum()
+
+    def get_total(self):
+        return self.sum
 
     def __repr__(self) -> str:
         return f"Node(sum={self.sum})"
 
-    def is_leaf(self):
-        return self.left is None and self.right is None
-
     def set_sum(self):
-        left_sum = self.left.sum if self.left is not None else 0
-        right_sum = self.right.sum if self.right is not None else 0
+        if isinstance(self.left, Node):
+            left_sum = self.left.sum
+        elif self.left is None:
+            left_sum = 0
+        else:
+            left_sum = self.left.value
+
+        if isinstance(self.right, Node):
+            right_sum = self.right.sum
+        elif self.right is None:
+            right_sum = 0
+        else:
+            right_sum = self.right.value
+
         self.sum = left_sum + right_sum
-
-    @classmethod
-    def leaf(cls, sum: int):
-        return cls(None, None, sum)
-
-    @classmethod
-    def branch(cls, left: Self | None, right: Self | None):
-        node = cls(left, right, 0)
-        node.set_sum()
-        return node
 
     def iter_path(self, hops: Hops):
         current = self
         yield current
         for hop in hops:
+            if not isinstance(current, Node):
+                raise ValueError("a Node can't be a leaf while hops are hopping")
             if hop == "0":
                 current = current.left
             elif hop == "1":
                 current = current.right
             else:
                 raise ValueError("unreachable")
-            if current is None:
-                raise ValueError("a Node can't be None while hops are hopping")
             yield current
 
     def traverse(self, hops: Hops):
@@ -105,10 +128,10 @@ class Node:
         return element
 
 
-class Tree(Solution):
+class Tree[T: Addable](Solution):
     def __init__(self, items: list[int]) -> None:
         self.len = len(items)
-        nodes = [Node.leaf(item) for item in items]
+        nodes = [Leaf(item) for item in items]
         for degree in itertools.count(1):
             nodes = self.build_level(nodes)
             if len(nodes) == 1:
@@ -120,10 +143,10 @@ class Tree(Solution):
         return self.len
 
     @staticmethod
-    def build_level(nodes: list[Node]):
+    def build_level(nodes: list[Node] | list[Leaf[int]]):
         results: list[Node] = []
         for i in range(0, len(nodes), 2):
-            new_node = Node.branch(
+            new_node = Node(
                 nodes[i],
                 None if i + 1 >= len(nodes) else nodes[i + 1],
             )
@@ -141,11 +164,13 @@ class Tree(Solution):
         hops = self.get_hops(at)
         visited = deque(self.root.iter_path(hops))
         leaf = visited.pop()
-        assert leaf.is_leaf()
-        leaf.sum = value
+        assert isinstance(leaf, Leaf)
+        leaf.value = value
 
         while visited:
-            visited.pop().set_sum()
+            branch = visited.pop()
+            assert isinstance(branch, Node)
+            branch.set_sum()
 
     def extract_common_hops(
         self, these: list[Literal["0", "1"]], those: list[Literal["0", "1"]]
@@ -165,6 +190,7 @@ class Tree(Solution):
             bottom_hops, top_hops
         )
         start = self.root.traverse(common_hops)
+        assert isinstance(start, Node)
 
         return self.sum_half(bottom_hops, start, "right") + self.sum_half(
             top_hops, start, "left"
@@ -178,8 +204,8 @@ class Tree(Solution):
     ):
         visited = deque(current.iter_path(hops))
         last = visited.pop()
-        assert last.is_leaf()
-        total = last.sum
+        assert isinstance(last, Leaf)
+        total = last.value
         visited.popleft()  # we dont need the root since its other half will be computed symmetrically
         while visited:
             parent = visited.pop()
@@ -187,7 +213,7 @@ class Tree(Solution):
                 getattr(parent, direction) is not last
                 and getattr(parent, direction) is not None
             ):
-                total += getattr(parent, direction).sum
+                total += getattr(parent, direction).get_total()
             last = parent
         return total
 
@@ -196,13 +222,13 @@ class Tree(Solution):
         g.node(str(id(self.root)), str(self.root.sum))
 
         def rec(node: Node):
-            g.node(str(id(node.right)), str(node.right and node.right.sum))
-            g.node(str(id(node.left)), str(node.left and node.left.sum))
+            g.node(str(id(node.right)), str(node.right and node.right.get_total()))
+            g.node(str(id(node.left)), str(node.left and node.left.get_total()))
             g.edge(str(id(node)), str(id(node.left)))
             g.edge(str(id(node)), str(id(node.right)))
-            if node.left is not None:
+            if isinstance(node.left, Node):
                 rec(node.left)
-            if node.right is not None:
+            if isinstance(node.right, Node):
                 rec(node.right)
 
         rec(self.root)
