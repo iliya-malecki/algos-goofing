@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import itertools
-from typing import Iterable, Literal, cast
+from typing import Iterable, Literal, cast, Self
 from collections import deque
 import graphviz
 
@@ -54,14 +54,20 @@ class Cum(Solution):
         return res
 
 
+Hops = Iterable[Literal["0", "1"]]
+
+
 class Node:
-    def __init__(self, left: Node | None, right: Node | None, sum: int) -> None:
+    def __init__(self, left: Self | None, right: Self | None, sum: int) -> None:
         self.left = left
         self.right = right
         self.sum = sum
 
     def __repr__(self) -> str:
         return f"Node(sum={self.sum})"
+
+    def is_leaf(self):
+        return self.left is None and self.right is None
 
     def set_sum(self):
         left_sum = self.left.sum if self.left is not None else 0
@@ -73,14 +79,35 @@ class Node:
         return cls(None, None, sum)
 
     @classmethod
-    def branch(cls, left: Node | None, right: Node | None):
-        node = Node(left, right, 0)
+    def branch(cls, left: Self | None, right: Self | None):
+        node = cls(left, right, 0)
         node.set_sum()
         return node
+
+    def iter_path(self, hops: Hops):
+        current = self
+        yield current
+        for hop in hops:
+            if hop == "0":
+                current = current.left
+            elif hop == "1":
+                current = current.right
+            else:
+                raise ValueError("unreachable")
+            if current is None:
+                raise ValueError("a Node can't be None while hops are hopping")
+            yield current
+
+    def traverse(self, hops: Hops):
+        element = self
+        for element in self.iter_path(hops):
+            ...
+        return element
 
 
 class Tree(Solution):
     def __init__(self, items: list[int]) -> None:
+        self.len = len(items)
         nodes = [Node.leaf(item) for item in items]
         for degree in itertools.count(1):
             nodes = self.build_level(nodes)
@@ -88,6 +115,9 @@ class Tree(Solution):
                 self.root = nodes[0]
                 self.degree = degree
                 return
+
+    def __len__(self):
+        return self.len
 
     @staticmethod
     def build_level(nodes: list[Node]):
@@ -102,28 +132,18 @@ class Tree(Solution):
 
     def get_hops(self, index: int):
         return cast(
-            Iterable[Literal["0", "1"]],
+            Hops,
             format(index, "b").rjust(self.degree, "0")[-self.degree :],
         )
 
     def setitem(self, at: int, value: int) -> None:
-        # padded and truncated to the degree of the tree to start at the bottom
+        assert at < len(self)
         hops = self.get_hops(at)
-        current = self.root
-        visited = deque[Node]()
-        for hop in hops:
-            visited.append(current)
-            if hop == "0":
-                if current.left is None:
-                    current.left = Node.leaf(0)
-                current = current.left
-            elif hop == "1":
-                if current.right is None:
-                    current.right = Node.leaf(0)
-                current = current.right
-            else:
-                raise ValueError("unreachable")
-        current.sum = value  # set the leaf
+        visited = deque(self.root.iter_path(hops))
+        leaf = visited.pop()
+        assert leaf.is_leaf()
+        leaf.sum = value
+
         while visited:
             visited.pop().set_sum()
 
@@ -144,47 +164,31 @@ class Tree(Solution):
         common_hops, bottom_hops, top_hops = self.extract_common_hops(
             bottom_hops, top_hops
         )
-        current = self.root
-        for hop in common_hops:
-            if hop == "0":
-                assert current.left is not None
-                current = current.left
-            elif hop == "1":
-                assert current.right is not None
-                current = current.right
-            else:
-                raise ValueError("unreachable")
-        return self.sum_half(bottom_hops, current, "right") + self.sum_half(
-            top_hops, current, "left"
+        start = self.root.traverse(common_hops)
+
+        return self.sum_half(bottom_hops, start, "right") + self.sum_half(
+            top_hops, start, "left"
         )
 
     def sum_half(
         self,
-        hops: Iterable[Literal["0", "1"]],
+        hops: Hops,
         current: Node,
         direction: Literal["left", "right"],
     ):
-        visited = deque[Node]()
-        for hop in hops:
-            visited.append(current)
-            if hop == "0":
-                assert current.left is not None
-                current = current.left
-            elif hop == "1":
-                assert current.right is not None
-                current = current.right
-            else:
-                raise ValueError("unreachable")
-        total = current.sum
-        visited.popleft()  # we dont need the root
+        visited = deque(current.iter_path(hops))
+        last = visited.pop()
+        assert last.is_leaf()
+        total = last.sum
+        visited.popleft()  # we dont need the root since its other half will be computed symmetrically
         while visited:
             parent = visited.pop()
             if (
-                getattr(parent, direction) is not current
+                getattr(parent, direction) is not last
                 and getattr(parent, direction) is not None
             ):
                 total += getattr(parent, direction).sum
-            current = parent
+            last = parent
         return total
 
     def viz(self):
