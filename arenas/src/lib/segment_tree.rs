@@ -1,5 +1,5 @@
 use crate::arena::{Arena, Id};
-use std::{collections::VecDeque, marker::PhantomData, ops::Add};
+use std::{collections::VecDeque, ops::Add};
 
 #[derive(Debug)]
 struct SparseBinaryTreeNode<Data> {
@@ -30,7 +30,6 @@ where
     Data: Default,
 {
     arena: Arena<SparseBinaryTreeNode<Data>>,
-    _data_kind: PhantomData<Data>,
     len: usize,
     root: Id,
     degree: usize,
@@ -51,7 +50,6 @@ where
             if nodes.len() == 1 {
                 return Self {
                     arena: arena,
-                    _data_kind: PhantomData,
                     len: items.len(),
                     root: nodes[0],
                     degree: degree,
