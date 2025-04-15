@@ -1,4 +1,3 @@
-
 use crate::arena::{Arena, Id};
 use std::{collections::VecDeque, marker::PhantomData, ops::Add};
 
@@ -14,7 +13,7 @@ where
     Data: Default + Clone,
 {
     pub fn leaf(value: &Data) -> Self {
-        SparseBinaryTreeNode::<Data> {
+        Self {
             data: value.clone(),
             left: None,
             right: None,
@@ -48,9 +47,9 @@ where
             .map(|el| arena.alloc(el))
             .collect::<Vec<_>>();
         for degree in 1usize.. {
-            nodes = SegmentTreeWithRealId::<Data>::build_level(&nodes, &mut arena);
+            nodes = Self::build_level(&nodes, &mut arena);
             if nodes.len() == 1 {
-                return SegmentTreeWithRealId {
+                return Self {
                     arena: arena,
                     _data_kind: PhantomData,
                     len: items.len(),
@@ -156,7 +155,7 @@ impl<'a, Data> NodePath<'a, Data> {
         arena: &'a Arena<SparseBinaryTreeNode<Data>>,
         tree_degree: usize,
     ) -> Self {
-        NodePath {
+        Self {
             id: start,
             arena,
             index,
@@ -176,7 +175,7 @@ impl<'a, Data> NodePath<'a, Data> {
         let leading_ones = equal_bits.leading_ones();
         let stop_index = size_of::<usize>() * 8 - leading_ones as usize;
 
-        let new_start = NodePath {
+        let new_start = Self {
             id: start,
             arena,
             index: left,
@@ -187,14 +186,14 @@ impl<'a, Data> NodePath<'a, Data> {
         .unwrap_or(start);
 
         (
-            NodePath {
+            Self {
                 id: new_start,
                 arena,
                 index: left,
                 offset: stop_index,
                 stop: 0,
             },
-            NodePath {
+            Self {
                 id: new_start,
                 arena,
                 index: right,
