@@ -1,5 +1,5 @@
 use crate::arena::{Arena, Id};
-use std::{collections::VecDeque, ops::Add};
+use std::{iter::Rev, ops::Add};
 
 #[derive(Debug)]
 struct SparseBinaryTreeNode<Data> {
@@ -24,6 +24,13 @@ where
         self.left.is_none() && self.right.is_none()
     }
 }
+pub trait ReverseStacking: Iterator + Sized {
+    fn reverse_stacking(self) -> Rev<std::vec::IntoIter<Self::Item>> {
+        let items: Vec<_> = self.collect();
+        items.into_iter().rev()
+    }
+}
+impl<I: Iterator> ReverseStacking for I {}
 
 pub struct SegmentTreeWithRealId<Data>
 where
@@ -80,22 +87,19 @@ where
 
     pub fn setitem(&mut self, at: usize, item: &Data) {
         assert!(at <= self.len);
-        let mut visited: VecDeque<_> = std::iter::once(self.root)
+        let mut visited = std::iter::once(self.root)
             .chain(NodePath::from_index(
                 at,
                 self.root,
                 &self.arena,
                 self.degree,
             ))
-            .collect();
-        let leaf_id = visited.pop_back().expect("why would it be empty");
+            .reverse_stacking();
+        let leaf_id = visited.next().expect("why would it be empty");
         let leaf = self.arena.get_mut(leaf_id);
         assert!(leaf.is_leaf());
         leaf.data = item.clone();
-        while !visited.is_empty() {
-            let id = visited
-                .pop_back()
-                .expect("cant have empty nodes in a chain of nodes");
+        for id in visited {
             let (left, right) = {
                 let node = self.arena.get(id);
                 (node.left, node.right)
@@ -115,13 +119,12 @@ where
     }
 
     fn sum_half(&self, hops: NodePath<Data>, direction: WalkDirection) -> Data {
-        let mut visited: VecDeque<_> = hops.collect();
-        let mut last_id = visited.pop_back().unwrap();
+        let mut visited = hops.reverse_stacking();
+        let mut last_id = visited.next().unwrap();
         let last = self.arena.get(last_id);
         assert!(last.is_leaf());
         let mut total = last.data.clone();
-        while !visited.is_empty() {
-            let parent = visited.pop_back().unwrap();
+        for parent in visited {
             let child = match direction {
                 WalkDirection::Up => self.arena.get(parent).right,
                 WalkDirection::Down => self.arena.get(parent).left,
