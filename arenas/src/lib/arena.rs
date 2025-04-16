@@ -1,4 +1,6 @@
-use derive_more::{Add, Display, Sub};
+use std::num::NonZeroUsize;
+
+use derive_more::Display;
 // Indexer indexes the array
 // ArPointer uses an indexer and an arena reference to have a cleaner api
 
@@ -7,36 +9,39 @@ pub struct Arena<T> {
     backing_array: Vec<T>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Add, Sub, Display, Debug)]
-pub struct Id(pub usize);
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
+pub struct Id(NonZeroUsize);
 
 impl<'a, T> Arena<T> {
     pub fn new() -> Self {
-        Arena {
-            backing_array: Vec::<T>::new(),
-        }
+        Self::with_capacity(0)
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Arena {
-            backing_array: Vec::with_capacity(capacity),
+        let mut arena = Arena {
+            backing_array: Vec::<T>::with_capacity(capacity),
+        };
+        unsafe {
+            arena.backing_array.set_len(1);
         }
+        arena
     }
 
     pub fn alloc(&mut self, item: T) -> Id {
         self.backing_array.push(item);
 
-        Id(self.backing_array.len() - 1)
+        Id(NonZeroUsize::new(self.backing_array.len() - 1)
+            .expect("arena's backing array cant be empty"))
     }
 
     pub fn get(&'a self, id: Id) -> &'a T {
         self.backing_array
-            .get(id.0)
+            .get(usize::from(id.0))
             .expect("specified id should have existed")
     }
     pub fn get_mut(&'a mut self, id: Id) -> &'a mut T {
         self.backing_array
-            .get_mut(id.0)
+            .get_mut(usize::from(id.0))
             .expect("specified id should have existed")
     }
 }
