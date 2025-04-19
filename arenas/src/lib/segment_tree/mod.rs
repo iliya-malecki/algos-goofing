@@ -1,112 +1,164 @@
-mod node_path;
 mod nodes;
 use crate::arena::{Arena, Id};
-use node_path::{NodePath, ReverseStacking, WalkDirection};
-use nodes::SparseBinaryTreeNode;
+use nodes::CompleteBinaryTreeNode;
 use std::ops::Add;
 
-pub struct SegmentTreeWithRealId<Data>
+pub struct SegmentTreeWithEphemeralId<Data>
 where
     Data: Default,
 {
-    arena: Arena<SparseBinaryTreeNode<Data>>,
+    arena: Arena<CompleteBinaryTreeNode<Data>>,
     len: usize,
     root: Id,
-    degree: usize,
 }
-impl<Data> SegmentTreeWithRealId<Data>
+impl<Data> SegmentTreeWithEphemeralId<Data>
 where
     Data: Default + Clone + Add<Output = Data>,
 {
+    // these look backwards because the root is at the self.array.len() and not at 0
+
+    fn reverse_of(&self, id: Id) -> Id {
+        self.arena.len() + 1 - id
+    }
+    fn left_of(&self, id: Id) -> Id {
+        self.reverse_of((self.reverse_of(id)) * 2 + 1)
+    }
+    fn right_of(&self, id: Id) -> Id {
+        self.reverse_of(self.reverse_of(id) * 2)
+    }
+    fn parent_of(&self, id: Id) -> Id {
+        self.reverse_of(self.reverse_of(id) / 2)
+    }
+    fn id_of_leaf(&self, array_index: usize) -> Option<Id> {
+        if array_index >= self.len {
+            None
+        } else {
+            Some(Id::from_array_index(array_index))
+        }
+    }
+    fn common_ancestor_of(&self, mut this: Id, mut that: Id) -> Id {
+        while this != that {
+            this = self.parent_of(this);
+            that = self.parent_of(that);
+        }
+        this
+    }
+
+    fn get_total_node_count(len: usize) -> usize {
+        let mut current = len;
+        let mut total = len;
+        while current > 0 {
+            if current % 2 == 0 {
+                current += 1;
+            }
+            total += current;
+            current /= 2;
+        }
+        total
+    }
+
     pub fn new(items: Vec<Data>) -> Self {
-        let mut arena = Arena::<SparseBinaryTreeNode<Data>>::with_capacity(items.len() * 4);
+        let capacity = Self::get_total_node_count(items.len());
+        let mut arena = Arena::<CompleteBinaryTreeNode<Data>>::with_capacity(capacity);
         let mut nodes = items
             .iter()
-            .map(SparseBinaryTreeNode::<Data>::leaf)
+            .map(CompleteBinaryTreeNode::<Data>::new)
             .map(|el| arena.alloc(el))
             .collect::<Vec<_>>();
-        for degree in 1usize.. {
+        for _ in 0..distance_to_nearest_power_of_2(nodes.len()) {
+            nodes.push(arena.alloc(CompleteBinaryTreeNode::default()));
+        }
+        loop {
             nodes = Self::build_level(&nodes, &mut arena);
             if nodes.len() == 1 {
                 return Self {
                     arena: arena,
                     len: items.len(),
                     root: nodes[0],
-                    degree: degree,
                 };
             }
         }
-        unreachable!();
     }
 
-    fn build_level(nodes: &Vec<Id>, arena: &mut Arena<SparseBinaryTreeNode<Data>>) -> Vec<Id> {
-        (0..nodes.len())
+    fn build_level(nodes: &Vec<Id>, arena: &mut Arena<CompleteBinaryTreeNode<Data>>) -> Vec<Id> {
+        let mut level: Vec<_> = (0..nodes.len())
             .step_by(2)
             .map(|i| {
                 let left_agg = arena.get(nodes[i]).data.clone();
-                let (right_agg, right_id) = if i + 1 >= nodes.len() {
-                    (Data::default(), None)
+                let right_agg = if i + 1 >= nodes.len() {
+                    Data::default()
                 } else {
-                    (arena.get(nodes[i + 1]).data.clone(), Some(nodes[i + 1]))
+                    arena.get(nodes[i + 1]).data.clone()
                 };
-                arena.alloc(SparseBinaryTreeNode {
+                arena.alloc(CompleteBinaryTreeNode {
                     data: left_agg + right_agg,
-                    left: Some(nodes[i]),
-                    right: right_id,
                 })
             })
-            .collect()
+            .collect();
+        for _ in 0..distance_to_nearest_power_of_2(nodes.len()) {
+            level.push(arena.alloc(CompleteBinaryTreeNode::default()));
+        }
+        level
     }
 
     pub fn setitem(&mut self, at: usize, item: &Data) {
-        assert!(at <= self.len);
-        let mut visited = std::iter::once(self.root)
-            .chain(NodePath::from_index(
-                at,
-                self.root,
-                &self.arena,
-                self.degree,
-            ))
-            .reverse_stacking();
-        let leaf_id = visited.next().expect("why would it be empty");
-        let leaf = self.arena.get_mut(leaf_id);
-        assert!(leaf.is_leaf());
-        leaf.data = item.clone();
-        for id in visited {
-            let (left, right) = {
-                let node = self.arena.get(id);
-                (node.left, node.right)
-            };
-            let left_data = left.map_or(Data::default(), |v| self.arena.get(v).data.clone());
-            let right_data = right.map_or(Data::default(), |v| self.arena.get(v).data.clone());
+        let mut id = self.id_of_leaf(at).expect("`at` index makes no sense");
+        self.arena.get_mut(id).data = item.clone();
+
+        while id != self.root {
+            id = self.parent_of(id);
+            let left_id = self.left_of(id);
+            let right_id = self.right_of(id);
+            let left_data = self.arena.get(left_id).data.clone();
+            let right_data = self.arena.get(right_id).data.clone();
             let node = self.arena.get_mut(id);
             node.data = left_data + right_data;
         }
     }
 
     pub fn range_sum(&self, lower: usize, upper: usize) -> Data {
-        let (lower_hops, upper_hops) =
-            NodePath::without_common_hops(lower, upper, self.root, &self.arena, self.degree);
-        self.sum_half(lower_hops, WalkDirection::Up)
-            + self.sum_half(upper_hops, WalkDirection::Down)
+        let lower_id = self
+            .id_of_leaf(lower)
+            .expect("`lower` index makes no sense");
+        let upper_id = self
+            .id_of_leaf(upper)
+            .expect("`upper` index makes no sense");
+        let common_ancestor = self.common_ancestor_of(lower_id, upper_id);
+        self.sum_half(lower_id, self.left_of(common_ancestor), WalkDirection::Up)
+            + self.sum_half(
+                upper_id,
+                self.right_of(common_ancestor),
+                WalkDirection::Down,
+            )
     }
 
-    fn sum_half(&self, hops: NodePath<Data>, direction: WalkDirection) -> Data {
-        let mut visited = hops.reverse_stacking();
-        let mut last_id = visited.next().unwrap();
-        let last = self.arena.get(last_id);
-        assert!(last.is_leaf());
-        let mut total = last.data.clone();
-        for parent in visited {
+    fn sum_half(&self, start: Id, stop: Id, direction: WalkDirection) -> Data {
+        let mut current = start;
+        let mut total = self.arena.get(start).data.clone();
+        while current != stop {
+            let parent = self.parent_of(current);
             let child = match direction {
-                WalkDirection::Up => self.arena.get(parent).right,
-                WalkDirection::Down => self.arena.get(parent).left,
+                WalkDirection::Up => self.right_of(parent),
+                WalkDirection::Down => self.left_of(parent),
             };
-            if child.is_some() && child != Some(last_id) {
-                total = total + self.arena.get(child.unwrap()).data.clone();
-            }
-            last_id = parent;
+            if child != current {
+                total = total + self.arena.get(child).data.clone();
+            };
+            current = parent;
         }
         total
     }
+}
+
+enum WalkDirection {
+    Up,
+    Down,
+}
+
+fn distance_to_nearest_power_of_2(n: usize) -> usize {
+    if n.count_ones() <= 1 {
+        return 0;
+    }
+    let upper = 1 << (size_of::<usize>() * 8 - n.leading_zeros() as usize);
+    upper - n
 }

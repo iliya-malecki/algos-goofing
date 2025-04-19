@@ -1,25 +1,15 @@
-pub use crate::arena::Id;
-
-#[derive(Debug)]
-pub struct SparseBinaryTreeNode<Data> {
+#[derive(Debug, Default)]
+pub struct CompleteBinaryTreeNode<Data> {
     pub data: Data,
-    pub left: Option<Id>,
-    pub right: Option<Id>,
 }
 
-impl<Data> SparseBinaryTreeNode<Data>
+impl<Data> CompleteBinaryTreeNode<Data>
 where
     Data: Default + Clone,
 {
-    pub fn leaf(value: &Data) -> Self {
+    pub fn new(value: &Data) -> Self {
         Self {
             data: value.clone(),
-            left: None,
-            right: None,
         }
-    }
-
-    pub fn is_leaf(&self) -> bool {
-        self.left.is_none() && self.right.is_none()
     }
 }
