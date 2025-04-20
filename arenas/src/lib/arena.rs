@@ -42,6 +42,13 @@ impl Sub<Id> for usize {
         Id(NonZeroUsize::new(self - rhs.0.get()).unwrap())
     }
 }
+impl Sub<usize> for Id {
+    type Output = Id;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        Id(NonZeroUsize::new(self.0.get() - rhs).unwrap())
+    }
+}
 
 #[derive(Debug)]
 pub struct Arena<T> {
@@ -73,12 +80,12 @@ impl<'a, T> Arena<T> {
             .expect("arena's backing array cant be empty"))
     }
 
-    pub fn get(&'a self, id: Id) -> &'a T {
+    pub fn get(&'a self, id: &Id) -> &'a T {
         self.backing_array
             .get(id.0.get())
             .expect("specified id should have existed")
     }
-    pub fn get_mut(&'a mut self, id: Id) -> &'a mut T {
+    pub fn get_mut(&'a mut self, id: &Id) -> &'a mut T {
         self.backing_array
             .get_mut(id.0.get())
             .expect("specified id should have existed")
