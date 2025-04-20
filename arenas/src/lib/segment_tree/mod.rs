@@ -242,12 +242,14 @@ fn precalculate_level_offsets(level_offsets: Vec<usize>) -> Vec<usize> {
     let backwards_cum_sum = level_offsets
         .iter()
         .rev()
-        .scan(0, |acc, el| Some(*acc + *el))
+        .scan(0, |acc, el| {
+            *acc = *acc + *el;
+            Some(*acc)
+        })
         .collect::<Vec<_>>()
         .into_iter()
         .rev();
     let lag = backwards_cum_sum.skip(1).chain(std::iter::once(0));
-
     level_offsets
         .iter()
         .zip(lag)
