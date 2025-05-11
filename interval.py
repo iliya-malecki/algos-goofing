@@ -253,49 +253,6 @@ class IntervalTreeIGuess(Solution):
     def display(self):
         return self.root.display()
 
-
-class DisjointIntervalSplicingMonstrocity(Solution):
-    """it dont work"""
-
-    def __init__(self, intervals: list[Interval]) -> None:
-        res: list[Interval] = [intervals[0]]
-        for interval in sorted(intervals[1:], key=lambda x: x.lower):
-            if interval.lower > res[-1].upper:  # disjoint
-                res.append(interval)
-            else:
-                res[-1].upper = interval.upper  # joint?
-        self.intervals = res
-
-    def binary_search(self, interval: Interval):
-        step = (len(self.intervals) - 1) // 2
-        pos = step
-        while step > 0:
-            step //= 2
-            candidate = self.intervals[pos]
-            if candidate.lower == interval.lower:
-                return pos
-            elif candidate.lower > interval.lower:
-                pos -= step
-            elif candidate.lower < interval.lower:
-                pos += step
-        # crank up to the next bigger value
-        while pos < len(self.intervals) and self.intervals[pos].lower < interval.lower:
-            pos += 1
-        return pos
-
-    def add(self, interval: Interval) -> None:
-        raise NotImplementedError
-
-    def delete(self, interval: Interval) -> None:
-        raise NotImplementedError
-
-    def is_covered(self, point: float) -> bool:
-        raise NotImplementedError
-
-    def display(self):
-        raise NotImplementedError
-
-
 def test(solution: type[Solution]):
     s = solution(intervals_from_tuples([(1, 2), (2, 3), (5, 8), (0, 2), (0, 3)]))
 
