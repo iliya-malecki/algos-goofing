@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Self, Literal
 import graphviz
 import uuid
-import time
 
 type Direction = Literal["left", "right"]
 
@@ -148,8 +147,7 @@ class IntervalTreeNode(Node):
     right_point: float
 
     def __repr__(self) -> str:
-        return f"({self.left_point}, children={self.child_count})"
-        return f"({self.left_point}, {self.right_point})"
+        return f"({self.left_point}, {self.right_point})[ch={self.child_count}]"
 
     @classmethod
     def lone(cls, left_point: float, right_point: float):
@@ -161,6 +159,32 @@ class IntervalTreeNode(Node):
             left_point,
             right_point,
         )
+
+    def overlaps(self, other: Self):
+        return other.right_point - self.left_point < (
+            other.right_point - other.left_point
+        ) + (self.right_point - self.left_point)
+
+    def merge_children(self, direction: Direction):
+        while True:
+            child = self.get(direction)
+            if child is None:
+                return
+            elif self.overlaps(child):
+                # discard the other child since thats covered by self's new interval
+                # here, the "-" represents the newly inserted interval
+                #       ---------______     <self
+                #   _____                   <self.left_child
+                #          ____             <self.left_child.right_child
+                if direction == "left":
+                    self.left_point = child.left_point
+                    self.left_child = child.left_child
+                elif direction == "right":
+                    self.right_point = child.right_point
+                    self.right_child = child.right_child
+            else:
+                # got to a child i should not perform surgery on
+                return
 
     def display(self):
         def graph_id(node: IntervalTreeNode | None):
@@ -217,53 +241,104 @@ class IntervalTreeIGuess(Solution):
         for interval in intervals[1:]:
             self.add(interval)
 
-    def rotate_left(self): ...
-
-    def rotate_right(self): ...
-
     def add(self, interval: Interval) -> None:
         node = self.root
         while True:
-            if interval.lower < node.left_point:
-                direction: Direction = "left"
-                child = node.left_child
-            elif interval.lower > node.left_point:
-                direction: Direction = "right"
-                child = node.right_child
-            else:  # equal, set the value and go
-                return  # its a noop for now as i disregard the upper for testing purposes
-
-            if child is None:
+            # traverse
+            if interval.upper < node.left_point and node.left_child is not None:
+                node = node.left_child
+            elif interval.lower > node.right_point and node.right_child is not None:
+                node = node.right_child
+            # disjoint; create new children
+            elif interval.upper < node.left_point and node.left_child is None:
                 self.root = node.set_child_two_way_autobalanced(
-                    direction,
+                    "left",
                     IntervalTreeNode.lone(
                         left_point=interval.lower,
                         right_point=interval.upper,
                     ),
                 )
+                return
+            elif interval.lower > node.right_point and node.right_child is None:
+                self.root = node.set_child_two_way_autobalanced(
+                    "right",
+                    IntervalTreeNode.lone(
+                        left_point=interval.lower,
+                        right_point=interval.upper,
+                    ),
+                )
+                return
+            # overlap
             else:
-                node = child
+                if interval.lower < node.left_point:
+                    node.left_point = interval.lower
+                    node.merge_children("left")
+                if interval.upper > node.right_point:
+                    node.right_point = interval.upper
+                    node.merge_children("right")
+                return
 
     def delete(self, interval: Interval):
-        raise NotImplementedError
+        node = self.root
+        while True:
+            # traverse
+            if interval.upper < node.left_point:
+                node = node.left_child
+            elif interval.lower > node.right_point:
+                node = node.right_child
+            # overlap
+            elif interval.upper < node.right_point and interval.lower > node.left_point:
+                # the most annoying case of splitting in the middle.
+                node.left_point = interval.upper
+                self.root = node.set_child_two_way_autobalanced(
+                    "left",
+                    IntervalTreeNode(
+                        node.left_child,
+                        None,
+                        node,
+                        node_count(node.left_child) + 1,
+                        node.left_point,
+                        interval.lower,
+                    ),
+                )
+                return
+            elif interval.upper < node.right_point:
+                node.left_point = interval.upper
+                node = node.left_child
+            elif interval.lower > node.left_point:
+                node.right_point = interval.lower
+                node = node.right_child
+            if node is None:
+                return
 
     def is_covered(self, point: float) -> bool:
-        raise NotImplementedError
+        node = self.root
+        while True:
+            if point < node.left_point:
+                node = node.left_child
+            elif point > node.right_point:
+                node = node.right_child
+            else:
+                return True
+            if node is None:
+                return False
 
     def display(self):
         return self.root.display()
 
-def test(solution: type[Solution]):
-    s = solution(intervals_from_tuples([(1, 2), (2, 3), (5, 8), (0, 2), (0, 3)]))
 
+def test(solution: type[Solution]):
+    s = solution(intervals_from_tuples([(1, 2), (2.1, 3), (5, 8), (0, 2), (0, 3)]))
     assert not s.is_covered(4)
+    assert s.is_covered(2.5)
+
+    s.delete(Interval(2.7, 6.3))
+    s.display()
+    assert s.is_covered(2.05)
+    assert s.is_covered(2.1)
+    assert not s.is_covered(2.8)
+    assert not s.is_covered(6.2)
 
 
 if __name__ == "__main__":
-    a = IntervalTreeIGuess(
-        intervals_from_tuples([(1, 3), (0, 1), (0, 2), (2, 4), (5, 6), (7, 8), (9, 10)])
-    )
-    print(a.root)
-    a.display()
-    # print(a.intervals)
-    # print(a.binary_search(Interval(7.5, 10)))
+    test(IntervalTreeIGuess)
